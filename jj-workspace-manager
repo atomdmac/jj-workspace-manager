@@ -2,7 +2,11 @@
 #
 # jj-workspace-manager - Manage jj workspaces with FZF
 #
-# Usage: jj-workspace-manager
+# NOTE: For the 'switch' operation to work, use the shell function version:
+#       source jj-workspace-manager.sh
+#
+# This script version outputs the path for switch (use with cd "$(...)"):
+#       cd "$(jj-workspace-manager)"
 #
 
 set -euo pipefail
@@ -15,13 +19,13 @@ command -v fzf >/dev/null 2>&1 || { echo "Error: fzf is not installed" >&2; exit
 workspaces=$(jj workspace list 2>/dev/null)
 
 if [[ -z "$workspaces" ]]; then
-    echo "No workspaces found"
+    echo "No workspaces found" >&2
     exit 0
 fi
 
-# Select workspace with FZF
+# Step 1: Select workspace with FZF
 selected=$(echo "$workspaces" | fzf \
-    --header="Select a workspace to remove (ESC to cancel)" \
+    --header="Select a workspace (ESC to cancel)" \
     --height=40% \
     --reverse \
     --border \
@@ -29,24 +33,50 @@ selected=$(echo "$workspaces" | fzf \
 
 # Exit if nothing selected (user pressed ESC)
 if [[ -z "$selected" ]]; then
-    echo "Cancelled"
+    echo "Cancelled" >&2
     exit 0
 fi
 
 # Extract workspace name (everything before the colon)
 workspace_name=$(echo "$selected" | cut -d':' -f1 | xargs)
 
-# Confirm removal with FZF
-confirmation=$(printf "No\nYes" | fzf \
-    --header="Remove workspace '$workspace_name'?" \
+# Extract workspace path (everything after the colon, trimmed)
+workspace_path=$(echo "$selected" | cut -d':' -f2- | xargs)
+
+# Step 2: Select operation with FZF
+operation=$(printf "switch\ndelete" | fzf \
+    --header="Workspace: $workspace_name" \
     --height=20% \
     --reverse \
     --border \
-    --prompt="Confirm > ")
+    --prompt="Operation > ")
 
-if [[ "$confirmation" == "Yes" ]]; then
-    jj workspace forget "$workspace_name"
-    echo "Workspace '$workspace_name' has been removed"
-else
-    echo "Cancelled"
+# Exit if nothing selected (user pressed ESC)
+if [[ -z "$operation" ]]; then
+    echo "Cancelled" >&2
+    exit 0
 fi
+
+case "$operation" in
+    switch)
+        # Output the workspace path for cd
+        # Usage: cd "$(jj-workspace-manager)"
+        echo "$workspace_path"
+        ;;
+    delete)
+        # Confirm removal with FZF
+        confirmation=$(printf "No\nYes" | fzf \
+            --header="Remove workspace '$workspace_name'?" \
+            --height=20% \
+            --reverse \
+            --border \
+            --prompt="Confirm > ")
+
+        if [[ "$confirmation" == "Yes" ]]; then
+            jj workspace forget "$workspace_name"
+            echo "Workspace '$workspace_name' has been removed" >&2
+        else
+            echo "Cancelled" >&2
+        fi
+        ;;
+esac
