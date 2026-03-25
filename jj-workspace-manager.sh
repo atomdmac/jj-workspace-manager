@@ -68,6 +68,12 @@ jj-workspace-manager() {
             echo "Switched to workspace '$workspace_name'"
             ;;
         delete)
+            # Prevent deletion of the default workspace
+            if [[ "$workspace_name" == "default" ]]; then
+                echo "Error: Cannot delete the default workspace" >&2
+                return 1
+            fi
+            
             # Confirm removal with FZF and offer directory deletion option
             local confirmation
             confirmation=$(printf "No\nYes (keep directory)\nYes (delete directory too)" | fzf \
