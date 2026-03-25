@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# jj-workspace-manager - Manage jj workspaces with FZF
+#
+# Usage: jj-workspace-manager
+#
+
+set -euo pipefail
+
+# Check dependencies
+command -v jj >/dev/null 2>&1 || { echo "Error: jj is not installed" >&2; exit 1; }
+command -v fzf >/dev/null 2>&1 || { echo "Error: fzf is not installed" >&2; exit 1; }
+
+# Get list of workspaces
+workspaces=$(jj workspace list 2>/dev/null)
+
+if [[ -z "$workspaces" ]]; then
+    echo "No workspaces found"
+    exit 0
+fi
+
+# Select workspace with FZF
+selected=$(echo "$workspaces" | fzf \
+    --header="Select a workspace to remove (ESC to cancel)" \
+    --height=40% \
+    --reverse \
+    --border \
+    --prompt="Workspace > ")
+
+# Exit if nothing selected (user pressed ESC)
+if [[ -z "$selected" ]]; then
+    echo "Cancelled"
+    exit 0
+fi
+
+# Extract workspace name (everything before the colon)
+workspace_name=$(echo "$selected" | cut -d':' -f1 | xargs)
+
+# Confirm removal with FZF
+confirmation=$(printf "No\nYes" | fzf \
+    --header="Remove workspace '$workspace_name'?" \
+    --height=20% \
+    --reverse \
+    --border \
+    --prompt="Confirm > ")
+
+if [[ "$confirmation" == "Yes" ]]; then
+    jj workspace forget "$workspace_name"
+    echo "Workspace '$workspace_name' has been removed"
+else
+    echo "Cancelled"
+fi
