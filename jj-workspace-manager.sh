@@ -26,6 +26,7 @@ jj-workspace-manager() {
         --height=40% \
         --reverse \
         --border \
+        --cycle \
         --prompt="Workspace > ")
 
     # Exit if nothing selected (user pressed ESC)
@@ -54,6 +55,7 @@ jj-workspace-manager() {
         --height=20% \
         --reverse \
         --border \
+        --cycle \
         --prompt="Operation > ")
 
     # Exit if nothing selected (user pressed ESC)
@@ -81,6 +83,7 @@ jj-workspace-manager() {
                 --height=20% \
                 --reverse \
                 --border \
+                --cycle \
                 --prompt="Confirm > ")
 
             case "$confirmation" in
