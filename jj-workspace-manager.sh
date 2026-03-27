@@ -10,6 +10,8 @@ jj-workspace-manager() {
     command -v jj >/dev/null 2>&1 || { echo "Error: jj is not installed" >&2; return 1; }
     command -v fzf >/dev/null 2>&1 || { echo "Error: fzf is not installed" >&2; return 1; }
 
+    echo "Getting workspaces..."
+
     # Get list of workspaces
     local workspaces
     workspaces=$(jj workspace list 2>/dev/null)
@@ -20,6 +22,8 @@ jj-workspace-manager() {
     fi
 
     # Step 1: Select workspace with FZF
+    # Clear the "Getting workspaces..." message
+    printf '\033[1A\033[2K'
     local selected
     selected=$(echo "$workspaces" | fzf \
         --header="Select a workspace (ESC to cancel)" \
