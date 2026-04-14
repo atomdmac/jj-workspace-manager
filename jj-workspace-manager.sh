@@ -134,4 +134,58 @@ jj-workspace-manager() {
 }
 
 alias jjw="jj-workspace-manager"
-alias jja="jj workspace add"
+jj-workspace-add() {
+    # Pass all arguments straight through to jj workspace add
+    local output
+    output=$(jj workspace add "$@" 2>&1)
+    local exit_code=$?
+
+    echo "$output"
+    [[ $exit_code -ne 0 ]] && return $exit_code
+
+    # Determine the workspace name: honour --name/-n option, otherwise use
+    # the basename of the path argument.  Uses a plain for-in loop so it
+    # works in both bash and zsh (avoids zsh 1-indexed array pitfalls).
+    local workspace_name=""
+    local path_arg=""
+    local prev_arg=""
+    local arg
+    for arg in "$@"; do
+        if [[ "$prev_arg" == "--name" || "$prev_arg" == "-n" ]]; then
+            workspace_name="$arg"
+        elif [[ "$arg" == --name=* ]]; then
+            workspace_name="${arg#--name=}"
+        elif [[ "$arg" != -* ]]; then
+            path_arg="$arg"
+        fi
+        prev_arg="$arg"
+    done
+
+    if [[ -z "$workspace_name" && -n "$path_arg" ]]; then
+        workspace_name=$(basename "$path_arg")
+    fi
+
+    # Resolve path via jj — same approach used by the switch/delete operations
+    local workspace_path=""
+    if [[ -n "$workspace_name" ]]; then
+        workspace_path=$(jj workspace root --name "$workspace_name" 2>/dev/null)
+    fi
+
+    # Offer to open a new tmux window only when inside a tmux session
+    if [[ -n "$TMUX" && -n "$workspace_path" && -d "$workspace_path" ]]; then
+        local choice
+        choice=$(printf "No\nYes" | fzf \
+            --header="Open new tmux window in '$workspace_path'?" \
+            --height=15% \
+            --reverse \
+            --border \
+            --cycle \
+            --prompt="Tmux > ")
+
+        if [[ "$choice" == "Yes" ]]; then
+            tmux new-window -c "$workspace_path"
+        fi
+    fi
+}
+
+alias jja="jj-workspace-add"
