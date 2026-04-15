@@ -21,16 +21,17 @@ jj-workspace-manager() {
         return 0
     fi
 
-    # Step 1: Select workspace with FZF
+    # Step 1: Select workspace(s) with FZF (--multi allows TAB-selecting multiple)
     # Clear the "Getting workspaces..." message
     printf '\033[1A\033[2K'
     local selected
     selected=$(echo "$workspaces" | fzf \
-        --header="Select a workspace (ESC to cancel)" \
+        --header="Select workspace(s) — TAB to multi-select (ESC to cancel)" \
         --height=40% \
         --reverse \
         --border \
         --cycle \
+        --multi \
         --prompt="Workspace > ")
 
     # Exit if nothing selected (user pressed ESC)
@@ -39,6 +40,108 @@ jj-workspace-manager() {
         return 0
     fi
 
+    # Count how many workspaces were selected
+    local selected_count
+    selected_count=$(echo "$selected" | wc -l | xargs)
+
+    # ── Multi-workspace path: skip straight to delete/forget ──────────────────
+    if [[ "$selected_count" -gt 1 ]]; then
+        # Build arrays of names and paths, reject 'default'
+        local ws_entries=()
+        local skipped_default=false
+        local line ws_name ws_path
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            ws_name=$(echo "$line" | cut -d':' -f1 | xargs)
+            if [[ "$ws_name" == "default" ]]; then
+                skipped_default=true
+                continue
+            fi
+
+            ws_path=$(jj workspace root --name "$ws_name" 2>/dev/null)
+            if [[ -z "$ws_path" ]]; then
+                echo "Warning: Could not determine path for workspace '$ws_name', skipping" >&2
+                continue
+            fi
+            ws_entries+=("$ws_name|$ws_path")
+        done <<< "$selected"
+
+        if [[ "$skipped_default" == true ]]; then
+            echo "Note: 'default' workspace was skipped (cannot be deleted)"
+        fi
+
+        if [[ ${#ws_entries[@]} -eq 0 ]]; then
+            echo "No eligible workspaces to remove"
+            return 0
+        fi
+
+        local names_display
+        names_display=$(printf "  • %s\n" "${ws_entries[@]%%|*}")
+
+        # Height: 1 title line + 1 per workspace + 1 blank + 3 choices + 3 fzf chrome
+        local fzf_height=$(( ${#ws_entries[@]} + 8 ))
+
+        # Confirm removal with FZF
+        local confirmation
+        confirmation=$(printf "No\nYes (keep directories)\nYes (delete directories too)" | fzf \
+            --header="$(printf 'Remove %d workspaces?\n%s' "${#ws_entries[@]}" "$names_display")" \
+            --height=${fzf_height} \
+            --reverse \
+            --border \
+            --cycle \
+            --prompt="Confirm > ")
+
+        case "$confirmation" in
+            "Yes (keep directories)")
+                for ws_entry in "${ws_entries[@]}"; do
+                    ws_name="${ws_entry%%|*}"
+                    ws_path="${ws_entry#*|}"
+                    jj workspace forget "$ws_name"
+                    echo "Workspace '$ws_name' removed (directory kept at $ws_path)"
+                done
+                ;;
+            "Yes (delete directories too)")
+                local current_dir
+                current_dir=$(pwd)
+                local need_to_relocate=false
+                for ws_entry in "${ws_entries[@]}"; do
+                    ws_path="${ws_entry#*|}"
+                    if [[ "$current_dir" == "$ws_path" || "$current_dir" == "$ws_path"/* ]]; then
+                        need_to_relocate=true
+                    fi
+                done
+
+                local default_workspace_path
+                if [[ "$need_to_relocate" == true ]]; then
+                    default_workspace_path=$(jj workspace root --name default 2>/dev/null)
+                fi
+
+                for ws_entry in "${ws_entries[@]}"; do
+                    ws_name="${ws_entry%%|*}"
+                    ws_path="${ws_entry#*|}"
+                    jj workspace forget "$ws_name"
+                    if [[ -d "$ws_path" ]]; then
+                        rm -rf "$ws_path"
+                        echo "Workspace '$ws_name' and directory '$ws_path' removed"
+                    else
+                        echo "Workspace '$ws_name' removed (directory '$ws_path' not found)"
+                    fi
+                done
+
+                if [[ "$need_to_relocate" == true && -n "$default_workspace_path" ]]; then
+                    cd "$default_workspace_path" || return 1
+                    echo "Changed directory to default workspace: $default_workspace_path"
+                fi
+                ;;
+            *)
+                echo "Cancelled"
+                ;;
+        esac
+        return 0
+    fi
+
+    # ── Single-workspace path: original switch / delete flow ──────────────────
+
     # Extract workspace name (everything before the colon)
     local workspace_name
     workspace_name=$(echo "$selected" | cut -d':' -f1 | xargs)
@@ -46,7 +149,7 @@ jj-workspace-manager() {
     # Get workspace path using jj workspace root
     local workspace_path
     workspace_path=$(jj workspace root --name "$workspace_name" 2>/dev/null)
-    
+
     if [[ -z "$workspace_path" ]]; then
         echo "Error: Could not determine path for workspace '$workspace_name'" >&2
         return 1
@@ -79,7 +182,7 @@ jj-workspace-manager() {
                 echo "Error: Cannot delete the default workspace" >&2
                 return 1
             fi
-            
+
             # Confirm removal with FZF and offer directory deletion option
             local confirmation
             confirmation=$(printf "No\nYes (keep directory)\nYes (delete directory too)" | fzf \
@@ -100,17 +203,17 @@ jj-workspace-manager() {
                     local current_dir
                     current_dir=$(pwd)
                     local need_to_relocate=false
-                    
+
                     if [[ "$current_dir" == "$workspace_path" || "$current_dir" == "$workspace_path"/* ]]; then
                         need_to_relocate=true
                     fi
-                    
+
                     # Get default workspace path before deletion (in case we need to relocate)
                     local default_workspace_path
                     if [[ "$need_to_relocate" == true ]]; then
                         default_workspace_path=$(jj workspace root --name default 2>/dev/null)
                     fi
-                    
+
                     jj workspace forget "$workspace_name"
                     if [[ -d "$workspace_path" ]]; then
                         rm -rf "$workspace_path"
@@ -118,7 +221,7 @@ jj-workspace-manager() {
                     else
                         echo "Workspace '$workspace_name' removed (directory '$workspace_path' not found)"
                     fi
-                    
+
                     # Relocate to default workspace if we were inside the deleted workspace
                     if [[ "$need_to_relocate" == true && -n "$default_workspace_path" ]]; then
                         cd "$default_workspace_path" || return 1
