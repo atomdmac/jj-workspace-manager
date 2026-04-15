@@ -286,7 +286,7 @@ jj-workspace-add() {
             --prompt="Tmux > ")
 
         if [[ "$choice" == "Yes" ]]; then
-            tmux new-window -c "$workspace_path"
+            tmux new-window -n "$workspace_name" -c "$workspace_path"
         fi
     fi
 }
